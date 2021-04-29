@@ -104,6 +104,7 @@ int main(int argc, char** argv)
             sdbuf[2]='\n';
             //if(i==0)continue; //if the user just send "Enter", the client will not send anything.
             sdlen = write(clitfd,"OK\n",strlen("OK\n"));  //send the content you input.
+            printf("%ld\n",strlen("OK\n"));
             printf(" %s\n", sdbuf);
         }
         else{
