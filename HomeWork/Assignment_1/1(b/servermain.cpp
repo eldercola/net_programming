@@ -37,14 +37,22 @@ void checkJobbList(int signum){
   if(work == WAITING){// the server is available, just record the time.
     loopCount++;
   }
+  else{
+    printf("Let me be, I want to sleep.\n");
+  }
   //check the communication_id
   //1. lock the map
   map_lock.lock();
   //2. check in turn
   for(map<int, int>::iterator it = communication_ID.begin(); it != communication_ID.end();){
-    2021.5.3 14:55
+    it->second++;
+    if(it->second>=10){
+      printf("Client %d waits more than 10s.\n", it->first);
+      it = communication_ID.erase(it);
+    }
+    else ++it;
   }
-  printf("Let me be, I want to sleep.\n");
+  map_lock.unlock();
 
   if(loopCount>20){
     printf("I had enough.\n");
@@ -56,7 +64,7 @@ void checkJobbList(int signum){
 
 
 
-
+2021 5 4 10:44
 
 int main(int argc, char *argv[]){
   
