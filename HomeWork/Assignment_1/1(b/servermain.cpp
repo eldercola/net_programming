@@ -12,6 +12,7 @@
 #include <mutex>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <math.h>
 
 // Included to get the support library
 #include "calcLib.h"
@@ -33,11 +34,44 @@ using namespace std;
 #define MYPORT 5000
 /* Needs to be global, to be rechable by callback and main */
 int loopCount=0;
-int terminate=0;
+int Ter=0;
 int id = 0;//id starts from 0
 int work = WAITING;// not working at the start
 map<int, int> communication_ID;//the map stores the clients' datagrams id and the waiting time
 mutex map_lock;//The lock protecting communication_id
+
+//This function is used to get the result of a calc protocol.
+void getResult(calcProtocol* ptc){
+  switch(ntohl(ptc->arith)){
+          case 1:
+            ptc->inResult = htonl(ntohl(ptc->inValue1) + ntohl(ptc->inValue2));
+            break;
+          case 2:
+            ptc->inResult = ntohl(ptc->inValue1) - ntohl(ptc->inValue2);
+            if(ptc->inResult<0)ptc->inResult = 0 - ptc->inResult;
+            ptc->inResult = htonl(ptc->inResult);
+            break;
+          case 3:
+            ptc->inResult = htonl(ntohl(ptc->inValue1) * ntohl(ptc->inValue2));
+            break;
+          case 4:
+            ptc->inResult = htonl(ntohl(ptc->inValue1) / ntohl(ptc->inValue2));
+            break;
+          case 5:
+            ptc->flResult = ptc->flValue1 + ptc->flValue2;
+            break;
+          case 6:
+            ptc->flResult = fabs(ptc->flValue1 - ptc->flValue2);
+            break;
+          case 7:
+            ptc->flResult = ptc->flValue1 * ptc->flValue2;
+            break;
+          case 8:
+            ptc->flResult = ptc->flValue1 / ptc->flValue2;
+            break;
+  }
+  return;
+}
 
 /* Call back function, will be called when the SIGALRM is raised when the timer expires. */
 void checkJobbList(int signum){
@@ -64,7 +98,7 @@ void checkJobbList(int signum){
 
   if(loopCount>20){
     printf("I had enough.\n");
-    terminate=1;
+    Ter=1;
   }
   return;
 }
@@ -86,6 +120,8 @@ int main(int argc, char *argv[]){
   /* Regiter a callback function, associated with the SIGALRM signal, which will be raised when the alarm goes of */
   signal(SIGALRM, checkJobbList);
   setitimer(ITIMER_REAL,&alarmTime,NULL); // Start/register the alarm. 
+  //register id stores current id number.
+  int register_id;
   //create socket
   int servfd, rvsdlen;
   struct sockaddr_in servAddr;
@@ -100,7 +136,7 @@ int main(int argc, char *argv[]){
   bzero(&servAddr, sizeof(servAddr));
   servAddr.sin_family = AF_INET;
   servAddr.sin_port = htons(MYPORT);
-  server.sin_addr.s_addr = htonl(INADDR_ANY);
+  servAddr.sin_addr.s_addr = htonl(INADDR_ANY);
   //bind port & address of server
   if(bind(servfd, (struct sockaddr*)&servAddr, sizeof(servAddr))==-1){
     perror("bind");
@@ -113,7 +149,7 @@ int main(int argc, char *argv[]){
   calcProtocol ptc, respondePtc;
   calcMessage msg;
   //start communicating
-  while(rvsdlen = recvfrom(servfd,rvsdbuf, MAXLENGTH, 0, (struct sockaddr*)&clitAddr, address_length)){
+  while(rvsdlen = recvfrom(servfd,rvsdbuf, MAXLENGTH, 0, (struct sockaddr*)&clitAddr, &address_length)){
     //if receive something error
     if(rvsdlen<0){
       printf("Client error!\n");
@@ -123,23 +159,114 @@ int main(int argc, char *argv[]){
     else{
       work = WORKING;
       printf("Server received a message from client.\n");
-      uint16_t ver;
-      memcpy(&ver, rvsdbuf, sizeof(ver));
-      ver = ntohs(ver);//use ntohs to translate network bytes to host bytes
-      2021.5.4 23:37
+      if(rvsdlen == sizeof(msg)){
+        //receive an clac message, copy it to the msg.
+        printf("Receive a calcMessage from a client.\n");
+        memcpy(&msg, rvsdbuf, rvsdlen);
+        if(ntohs(msg.type) == 22 && ntohl(msg.message)== 0){
+          register_id = id;
+        }
+        else{
+          work = WAITING;
+          loopCount = 0;
+          continue;
+        }
+        printf("Now generate a client id %d.\n", register_id);
+        //put register id into communication_id map
+        communication_ID[register_id] = 0;
+        //generate clacProtocol
+        initCalcLib();
+        loopCount = 0;
+        ope = randomType();
+        if(ope[0] == 102){
+          ptc.arith = htonl(rand()%4 + 5);
+          ptc.flValue1 = randomFloat();
+          ptc.flValue2 = randomFloat();
+          ptc.inValue1 = htonl(0);
+          ptc.inValue2 = htonl(0);
+          ptc.inResult = htonl(0);
+          ptc.flResult = 0.0f;
+        }
+        else{
+          ptc.arith = htonl(1+rand()%4);
+          ptc.inValue1 = htonl(randomInt());
+          ptc.inValue2 = htonl(randomInt());
+          ptc.flValue1 = 0.0f;
+          ptc.flValue2 = 0.0f;
+          ptc.inResult = htonl(0);
+          ptc.flResult = 0.0f;
+        }
+        ptc.major_version = htons(1);
+        ptc.minor_version = htons(0);
+        ptc.type = htons(1);
+        ptc.id = htonl(id++);
+        //send to client
+        sendto(servfd, (char*)&ptc,sizeof(ptc),0,(struct sockaddr*)&clitAddr,address_length);
+        printf("Server has generated a clacProtocol and sent to client.\nWait for a response.\n");
+      }
+      else if(rvsdlen == sizeof(respondePtc)){
+        printf("Get a responde from a client.\n");
+        memcpy(&respondePtc, rvsdbuf, sizeof(respondePtc));
+        register_id = ntohl(respondePtc.id);
+        if(communication_ID.count(register_id) == 0){
+          //the client is out of the map because its message is out of time.
+          printf("This clinet has been deleted.\n");
+          work = WAITING;
+          loopCount = 0;
+          continue;
+        }
+        //receive a responde normally
+        communication_ID[register_id] = 0;//reset the time.
+        getResult(&ptc);//obtain the result of calcProtocol
+        //check the result from client
+        if((ntohl(ptc.arith)<=4 && (ntohl(ptc.inResult) == ntohl(respondePtc.inResult)))||
+        (ntohl(ptc.arith)>4 && (ptc.flResult == respondePtc.flResult))){
+          msg.type = htons(2);
+          msg.message = htonl(1);
+          msg.major_version = htons(1);
+          msg.minor_version = htons(0);
+          msg.protocol = htons(17);
+          sendto(servfd, (char *)&msg, sizeof(calcMessage), 0, (struct sockaddr *)&clitAddr, address_length);
+          printf("Succeeded!\n");
+        }
+        else{
+          msg.type = htons(2);
+          msg.message = htonl(2);
+          msg.major_version = htons(1);
+          msg.minor_version = htons(0);
+          msg.protocol = htons(17);
+          sendto(servfd, (char *)&msg, sizeof(calcMessage), 0, (struct sockaddr *)&clitAddr, address_length);
+          printf("Failed!\n");
+        }
+        //erase the register id
+        map_lock.lock();
+        communication_ID.erase(register_id);
+        map_lock.unlock();
+        printf("A client has finished!\n\n");
+        work = WAITING;
+        loopCount = 0;
+      }
+      //can't handle this type of message
+      else{
+        msg.type = htons(2);
+        msg.message = htonl(0);
+        msg.major_version = htons(1);
+        msg.minor_version = htons(0);
+        msg.protocol = htons(17);
+        sendto(servfd, (char *)&msg, sizeof(calcMessage), 0, (struct sockaddr *)&clitAddr, address_length);
+        printf("Rejected!\n");
+        work = WAITING;
+        loopCount = 0;
+      }
     }
+    work = WAITING;
+    loopCount = 0;
   }
-
-  
-  while(terminate==0){
+  while(Ter==0){
     printf("This is the main loop, %d time.\n",loopCount);
     sleep(1);
     loopCount++;
   }
-
   printf("done.\n");
-  return(0);
-
-
-  
+  return 0;
 }
