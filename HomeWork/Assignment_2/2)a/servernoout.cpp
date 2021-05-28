@@ -21,7 +21,7 @@
 // Enable if you want debugging to be printed, see examble below.
 // Alternative, pass argument during compilation '-DDEBUG'
 #define DEBUG
-#define BACKLOG 3
+#define BACKLOG 1
 
 using namespace std;
 
@@ -117,13 +117,7 @@ timeout.tv_usec = 0;
     inet_ntop(client_address.ss_family,
       get_in_addr((struct sockaddr*)&client_address),
       clientAdd, sizeof clientAdd);
-    
-    //set the timeout
-    if(setsockopt(connfd,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof timeout) != 0){
-      perror("setsockopt");
-		  close(connfd);
-		  continue; //leave loop execution, go back to the while, main accept() loop. 
-    }
+      
     printf("server: Connection %d from %s\n",childCnt, clientAdd);
     printf("server: Sending TEXT TCP 1.0 \n");
 		struct sockaddr_in *local_sin=(struct sockaddr_in*)&client_address;
@@ -222,14 +216,12 @@ timeout.tv_usec = 0;
             perror("send OK");
             break;
           }
-          printf("Calc OK\n");
         }
         else{
           if(send(connfd, "ERROR\n", sizeof("ERROR\n"), 0) == -1){
             perror("send ERROR");
             break;
           }
-          printf("Calc Error.\n");
         }
       }
       else{
@@ -237,7 +229,7 @@ timeout.tv_usec = 0;
             perror("send ERROR");
             break;
           }
-          printf("ERROR TIME OUT.\n");
+          printf("ERROR\n");
           break;
       }
     }
