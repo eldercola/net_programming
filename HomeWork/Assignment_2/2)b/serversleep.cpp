@@ -80,9 +80,6 @@ void checkJobbList(int signum){
   if(work == WAITING){// the server is available, just record the time.
     loopCount++;
   }
-  else{
-    printf("Let me be, I want to sleep.\n");
-  }
   //check the communication_id
   //1. lock the map
   map_lock.lock();
@@ -220,6 +217,7 @@ int main(int argc, char *argv[]){
       }
       //if a calcProtocol has been returned
       else if(rvsdlen == sizeof(respondePtc)){
+        getchar();
         getpeername(servfd, (struct sockaddr*)&clitAddr, &address_length);//getpeername is used to get client address and port.
         printf("\n--------------A client has continued!--------------\nGet a responde from : IP:%s PORT:%d\n",inet_ntoa(clitAddr.sin_addr), ntohs(clitAddr.sin_port));
         memcpy(&respondePtc, rvsdbuf, sizeof(respondePtc));
